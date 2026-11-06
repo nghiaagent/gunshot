@@ -11,6 +11,7 @@
 #import "../Native/GSNativeRelay.h"
 #else
 #import "../Jailed/SideloadIdentity.h"
+#import "../Jailed/SideloadKeychain.h"
 #endif
 #import "../Native/GSNativeRouting.h"
 #import "../Native/GSUploadDiagnostics.h"
@@ -883,6 +884,7 @@
 #if GS_JAILED
     snapshot[@"runtime"] = GSEmbeddedRuntimeSnapshot();
     snapshot[@"sideloadIdentity"] = GSSideloadIdentitySnapshot();
+    snapshot[@"sideloadKeychain"] = GSSideloadKeychainSnapshot();
 #endif
     NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot
                                                    options:NSJSONWritingPrettyPrinted
