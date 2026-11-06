@@ -1,4 +1,5 @@
 #import "GSPhotosGlass.h"
+#import "GSPhotosGlassLookup.h"
 #import "../Shared/GSPhotosCompatibility.h"
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
@@ -10,6 +11,8 @@ static char GSGlassPairKey;
 static BOOL GSInstalled, GSBootGlassEnabled, GSRestartRequired, GSDesignOverrideApplied;
 static NSHashTable *GSControllers, *GSPairs;
 static NSString *GSLastSkip;
+static NSDictionary *GSLastLookup;
+static NSUInteger GSLookupAttempts;
 
 @class GSPhotosGlassPair;
 static void GSRefreshOverlayVisibility(GSPhotosGlassPair *pair);
@@ -107,11 +110,6 @@ static void GSRefreshOverlayVisibility(GSPhotosGlassPair *pair);
 - (void)forwardSearch;
 @end
 
-static id GSGet(id object, NSString *name) {
-    if (!object || !GSPhotosHasMethod(object_getClass(object), name, "@16@0:8"))
-        return nil;
-    return ((id(*)(id, SEL))objc_msgSend)(object, NSSelectorFromString(name));
-}
 static NSInteger GSInteger(id object, NSString *name) {
     return ((NSInteger(*)(id, SEL))objc_msgSend)(object, NSSelectorFromString(name));
 }
@@ -598,34 +596,40 @@ static void GSUpdateController(UIViewController *controller) {
     }
     if (previous.changing)
         return;
-    UIStackView *bar = GSGet(controller, @"floatingBottomTabBar");
-    UIControl *segments = GSGet(controller, @"floatingSegmentedControl");
-    UIButton *search = GSGet(controller, @"floatingSearchButton");
+    UIStackView *bar = GSPhotosGlassGetter(controller, @"floatingBottomTabBar");
+    UIControl *segments = GSPhotosGlassGetter(controller, @"floatingSegmentedControl");
+    UIButton *search = GSPhotosGlassGetter(controller, @"floatingSearchButton");
     if (previous && previous.bar == bar && previous.segments == segments &&
         previous.search == search) {
         GSLayoutNativeControls(previous);
         return;
     }
     GSRestore(previous);
-    if (![bar isKindOfClass:UIStackView.class] || ![segments isKindOfClass:UIControl.class] ||
-        ![segments isKindOfClass:NSClassFromString(@"PHSSegmentedControl")] ||
-        ![search isKindOfClass:UIButton.class] ||
-        ![search isKindOfClass:NSClassFromString(@"M3CButton")] || !bar.superview ||
-        segments.superview != bar || search.superview != bar ||
-        ![bar.arrangedSubviews containsObject:segments] ||
-        ![bar.arrangedSubviews containsObject:search]) {
-        GSLastSkip = @"floating_bottom_bar_not_found";
+    NSDictionary *lookup = nil;
+    NSString *notFound = GSPhotosGlassValidateBottomBar(controller, bar, segments, search, &lookup);
+    NSMutableDictionary *recorded = [lookup mutableCopy] ?: [NSMutableDictionary dictionary];
+    recorded[@"attempt"] = @(++GSLookupAttempts);
+    if (notFound) {
+        GSLastLookup = recorded.copy;
+        GSLastSkip = notFound;
         return;
     }
     if (GSInteger(segments, @"numberOfSegments") != 3) {
+        recorded[@"result"] = @"failed";
+        recorded[@"failedCheck"] = @"segments.count_not_3";
+        GSLastLookup = recorded.copy;
         GSLastSkip = @"unexpected_segment_count";
         return;
     }
     if (objc_getAssociatedObject(segments, &GSGlassPairKey) ||
         objc_getAssociatedObject(search, &GSGlassPairKey)) {
+        recorded[@"result"] = @"failed";
+        recorded[@"failedCheck"] = @"views.already_owned";
+        GSLastLookup = recorded.copy;
         GSLastSkip = @"bottom_bar_already_owned";
         return;
     }
+    GSLastLookup = recorded.copy;
     GSPhotosGlassPair *pair = [GSPhotosGlassPair new];
     pair.controller = controller;
     pair.bar = bar;
@@ -764,7 +768,7 @@ NSDictionary *GSPhotosGlassSnapshot(void) {
     NSString *unavailable = GSUnavailableReason();
     return @{@"enabled":@(GSPhotosGlassEnabled()),@"activeThisLaunch":@(GSPhotosGlassActiveThisLaunch()),@"available":@(unavailable==nil),@"hooksInstalled":@(GSInstalled),
   @"designCompatibilityOverride":@(GSDesignOverrideApplied),@"restartRequired":@(GSRestartRequired),@"controllersSeen":@(GSControllers.count),@"attachedBars":@(attached),@"visibleOverlays":@(visible),
-  @"reason":unavailable?:(GSRestartRequired?@"restart_required":attached?@"attached":GSLastSkip?:(GSPhotosGlassEnabled()?@"waiting_for_bottom_bar":@"disabled")),@"lastSkipReason":GSLastSkip?:NSNull.null};
+  @"reason":unavailable?:(GSRestartRequired?@"restart_required":attached?@"attached":GSLastSkip?:(GSPhotosGlassEnabled()?@"waiting_for_bottom_bar":@"disabled")),@"lastSkipReason":GSLastSkip?:NSNull.null,@"lastLookup":GSLastLookup?:NSNull.null};
 }
 __attribute__((constructor)) static void GSLoadPhotosGlass(void) {
     @autoreleasepool {
