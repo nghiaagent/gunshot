@@ -3,6 +3,7 @@ GUNSHOT_HOST_FILES = \
 	UI/GSPanel.m \
 	UI/GSDeveloperLinks.m \
 	UI/GSPhotosGlass.m \
+	UI/GSPhotosGlassLookup.m \
 	UI/GSPhotosGlassVisibilityGuard.m \
 	Media/GSBatchImport.m \
 	UI/GSAlbumPicker.m \
